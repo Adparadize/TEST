@@ -1,171 +1,273 @@
-/**
- * Accessibility Plugin
- * Features: High-Contrast Mode, Text Resizer, Color Vision Deficiency Support, Text-to-Speech, Reset
- * To use: Include this script in your HTML file.
- */
+```jsx
+// AccessibilityTool.jsx
+import React, { useState, useEffect, useRef } from "react";
+import styled, { createGlobalStyle, css } from "styled-components";
 
-(function () {
-    // --- Styles ---
-    const style = document.createElement('style');
-    style.innerHTML = `
-        .a11y-toolbar {
-            position: fixed; top: 10px; right: 10px; z-index: 99999;
-            background: #222; color: #fff; border-radius: 8px; padding: 12px 16px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2); font-family: sans-serif;
-            display: flex; flex-direction: column; gap: 8px; min-width: 220px;
-        }
-        .a11y-toolbar button, .a11y-toolbar input[type=range] {
-            margin: 2px 0; font-size: 1em; border: none; border-radius: 4px;
-            padding: 6px 10px; background: #444; color: #fff; cursor: pointer;
-        }
-        .a11y-toolbar button:hover { background: #666; }
-        .a11y-toolbar label { font-size: 0.95em; margin-bottom: 2px; }
-        .a11y-hidden { display: none !important; }
-        .a11y-high-contrast * {
-            background: #000 !important; color: #fff !important;
-            border-color: #fff !important;
-            text-shadow: none !important;
-        }
-        .a11y-high-contrast a, .a11y-high-contrast a:visited {
-            color: #0ff !important; text-decoration: underline !important;
-        }
-        .a11y-high-contrast img, .a11y-high-contrast video {
-            filter: grayscale(1) contrast(2) !important;
-        }
-        .a11y-cvd-redgreen * {
-            filter: url('#a11y-cvd-protanope') !important;
-        }
-        .a11y-cvd-general * {
-            filter: grayscale(0.5) !important;
-        }
-    `;
-    document.head.appendChild(style);
-
-    // SVG filter for red-green color blindness simulation
-    const svgFilter = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svgFilter.setAttribute('width', '0');
-    svgFilter.setAttribute('height', '0');
-    svgFilter.innerHTML = `
-        <filter id="a11y-cvd-protanope">
-            <feColorMatrix type="matrix" values="0.567 0.433 0 0 0 0.558 0.442 0 0 0 0 0.242 0.758 0 0 0 0 0 1 0"/>
-        </filter>
-    `;
-    document.body.appendChild(svgFilter);
-
-    // --- Toolbar UI ---
-    const toolbar = document.createElement('div');
-    toolbar.className = 'a11y-toolbar';
-    toolbar.innerHTML = `
-        <button id="a11y-contrast-btn" aria-pressed="false">High Contrast</button>
-        <label for="a11y-text-size">Text Size</label>
-        <input type="range" id="a11y-text-size" min="0" max="19" value="9" />
-        <div style="display:flex;gap:4px;">
-            <button id="a11y-cvd-redgreen-btn" aria-pressed="false" title="Red-Green Color Blindness">Red-Green CVD</button>
-            <button id="a11y-cvd-general-btn" aria-pressed="false" title="General Color Weakness">General CVD</button>
-        </div>
-        <button id="a11y-tts-hover-btn" aria-pressed="false">Read on Hover</button>
-        <button id="a11y-tts-page-btn">Read Page</button>
-        <button id="a11y-reset-btn">Reset</button>
-    `;
-    document.body.appendChild(toolbar);
-
-    // --- State ---
-    let highContrast = false;
-    let textSizeStep = 9; // 0-19, default 9
-    let cvdRedGreen = false;
-    let cvdGeneral = false;
-    let ttsHover = false;
-    let ttsUtterance = null;
-    let ttsHoverHandler = null;
-
-    // --- Functions ---
-    function setHighContrast(on) {
-        highContrast = on;
-        document.documentElement.classList.toggle('a11y-high-contrast', on);
-        document.getElementById('a11y-contrast-btn').setAttribute('aria-pressed', on);
+// --- Global Styles for High Contrast, Scaling, Font Size, Usability ---
+const GlobalStyles = createGlobalStyle`
+    body {
+        ${({ highContrast }) =>
+            highContrast &&
+            css`
+                background: #111 !important;
+                color: #fff !important;
+            `}
+        ${({ scale }) =>
+            scale !== 1 &&
+            css`
+                transform: scale(${scale});
+                transform-origin: top left;
+            `}
+        ${({ fontSize }) =>
+            fontSize !== 100 &&
+            css`
+                font-size: ${fontSize}%;
+            `}
+        transition: background 0.2s, color 0.2s, font-size 0.2s, transform 0.2s;
     }
-
-    function setTextSize(step) {
-        textSizeStep = step;
-        // 20 steps from 80% to 200%
-        const percent = 80 + (step * 6.32);
-        document.documentElement.style.fontSize = percent + '%';
-        document.getElementById('a11y-text-size').value = step;
+    * {
+        ${({ easyUsability }) =>
+            easyUsability &&
+            css`
+                font-size: 1.2em !important;
+                padding: 0.5em 1em !important;
+                min-width: 44px;
+                min-height: 44px;
+            `}
     }
+`;
 
-    function setCvdRedGreen(on) {
-        cvdRedGreen = on;
-        document.documentElement.classList.toggle('a11y-cvd-redgreen', on);
-        document.getElementById('a11y-cvd-redgreen-btn').setAttribute('aria-pressed', on);
-        if (on) setCvdGeneral(false);
-    }
+// --- Styled Components ---
+const FloatingButton = styled.button`
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10000;
+    background: #0078d4;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 56px;
+    height: 56px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+`;
 
-    function setCvdGeneral(on) {
-        cvdGeneral = on;
-        document.documentElement.classList.toggle('a11y-cvd-general', on);
-        document.getElementById('a11y-cvd-general-btn').setAttribute('aria-pressed', on);
-        if (on) setCvdRedGreen(false);
-    }
+const Panel = styled.div`
+    position: fixed;
+    right: 96px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10001;
+    background: #fff;
+    color: #222;
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.2);
+    padding: 24px;
+    min-width: 320px;
+    ${({ highContrast }) =>
+        highContrast &&
+        css`
+            background: #222;
+            color: #fff;
+        `}
+`;
 
-    function setTtsHover(on) {
-        ttsHover = on;
-        document.getElementById('a11y-tts-hover-btn').setAttribute('aria-pressed', on);
-        if (on) {
-            ttsHoverHandler = function (e) {
-                if (e.target && e.target.innerText && e.target.innerText.trim().length > 0) {
-                    speakText(e.target.innerText.trim());
-                }
-            };
-            document.body.addEventListener('mouseover', ttsHoverHandler);
-        } else {
-            document.body.removeEventListener('mouseover', ttsHoverHandler);
-            stopSpeech();
-        }
-    }
+const Section = styled.div`
+    margin-bottom: 18px;
+`;
 
-    function speakText(text) {
-        stopSpeech();
-        if ('speechSynthesis' in window) {
-            ttsUtterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(ttsUtterance);
-        }
-    }
+const Label = styled.label`
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+`;
 
-    function stopSpeech() {
-        if ('speechSynthesis' in window) {
-            window.speechSynthesis.cancel();
-        }
-        ttsUtterance = null;
-    }
+const Slider = styled.input`
+    width: 100%;
+`;
 
-    function readPage() {
-        stopSpeech();
-        let text = document.body.innerText || '';
-        speakText(text);
-    }
+const Button = styled.button`
+    margin: 0 6px;
+    padding: 8px 16px;
+    font-size: 1.1em;
+    border-radius: 6px;
+    border: none;
+    background: #0078d4;
+    color: #fff;
+    cursor: pointer;
+    ${({ easyUsability }) =>
+        easyUsability &&
+        css`
+            font-size: 1.3em;
+            padding: 16px 24px;
+        `}
+`;
 
-    function resetAll() {
-        setHighContrast(false);
-        setTextSize(9);
-        setCvdRedGreen(false);
-        setCvdGeneral(false);
-        setTtsHover(false);
-        stopSpeech();
-    }
+const Toggle = styled(Button)`
+    background: ${({ active }) => (active ? "#005a9e" : "#0078d4")};
+`;
 
-    // --- Event Listeners ---
-    document.getElementById('a11y-contrast-btn').onclick = () => setHighContrast(!highContrast);
-    document.getElementById('a11y-text-size').oninput = (e) => setTextSize(Number(e.target.value));
-    document.getElementById('a11y-cvd-redgreen-btn').onclick = () => setCvdRedGreen(!cvdRedGreen);
-    document.getElementById('a11y-cvd-general-btn').onclick = () => setCvdGeneral(!cvdGeneral);
-    document.getElementById('a11y-tts-hover-btn').onclick = () => setTtsHover(!ttsHover);
-    document.getElementById('a11y-tts-page-btn').onclick = () => readPage();
-    document.getElementById('a11y-reset-btn').onclick = () => resetAll();
+// --- Main Component ---
+const defaultSettings = {
+    highContrast: false,
+    scale: 1,
+    fontSize: 100,
+    easyUsability: false,
+};
 
-    // --- Initialize ---
-    setTextSize(textSizeStep);
+const SETTINGS_KEY = "accessibilityToolSettings";
 
-    // --- Accessibility: Keyboard navigation ---
-    toolbar.tabIndex = 0;
-    toolbar.setAttribute('aria-label', 'Accessibility Toolbar');
-})();
+export default function AccessibilityTool() {
+    const [open, setOpen] = useState(false);
+    const [settings, setSettings] = useState(defaultSettings);
+    const speechRef = useRef(null);
+
+    // Load settings from localStorage
+    useEffect(() => {
+        const saved = localStorage.getItem(SETTINGS_KEY);
+        if (saved) setSettings(JSON.parse(saved));
+    }, []);
+
+    // Persist settings
+    useEffect(() => {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }, [settings]);
+
+    // --- Text-to-Speech Hover Handler ---
+    useEffect(() => {
+        if (!open) return;
+        const handleMouseOver = (e) => {
+            if (!settings.easyUsability && !settings.highContrast) return;
+            const target = e.target;
+            if (
+                target &&
+                target.nodeType === 1 &&
+                target.textContent &&
+                target.textContent.trim().length > 0 &&
+                !["SCRIPT", "STYLE"].includes(target.tagName) &&
+                !target.closest('[data-accessibility-tool]')
+            ) {
+                if (speechRef.current) window.speechSynthesis.cancel();
+                const utter = new window.SpeechSynthesisUtterance(target.textContent.trim());
+                speechRef.current = utter;
+                window.speechSynthesis.speak(utter);
+            }
+        };
+        const handleMouseOut = () => {
+            if (speechRef.current) window.speechSynthesis.cancel();
+        };
+        document.body.addEventListener("mouseover", handleMouseOver);
+        document.body.addEventListener("mouseout", handleMouseOut);
+        return () => {
+            document.body.removeEventListener("mouseover", handleMouseOver);
+            document.body.removeEventListener("mouseout", handleMouseOut);
+        };
+    }, [open, settings.easyUsability, settings.highContrast]);
+
+    // --- Handlers ---
+    const toggleSetting = (key) =>
+        setSettings((s) => ({ ...s, [key]: !s[key] }));
+
+    const setScale = (value) =>
+        setSettings((s) => ({ ...s, scale: value }));
+
+    const adjustFontSize = (delta) =>
+        setSettings((s) => ({
+            ...s,
+            fontSize: Math.max(60, Math.min(200, s.fontSize + delta)),
+        }));
+
+    // --- Render ---
+    return (
+        <>
+            <GlobalStyles
+                highContrast={settings.highContrast}
+                scale={settings.scale}
+                fontSize={settings.fontSize}
+                easyUsability={settings.easyUsability}
+            />
+            <FloatingButton
+                aria-label="Open accessibility tools"
+                onClick={() => setOpen((o) => !o)}
+                data-accessibility-tool
+                title="Accessibility Tools"
+            >
+                {/* Person SVG Icon */}
+                <svg width="32" height="32" fill="none" viewBox="0 0 32 32">
+                    <circle cx="16" cy="9" r="5" fill="currentColor"/>
+                    <rect x="13" y="15" width="6" height="12" rx="3" fill="currentColor"/>
+                    <rect x="6" y="15" width="6" height="3" rx="1.5" fill="currentColor"/>
+                    <rect x="20" y="15" width="6" height="3" rx="1.5" fill="currentColor"/>
+                </svg>
+            </FloatingButton>
+            {open && (
+                <Panel highContrast={settings.highContrast} data-accessibility-tool>
+                    <Section>
+                        <Label>Improve Contrast</Label>
+                        <Toggle
+                            onClick={() => toggleSetting("highContrast")}
+                            active={settings.highContrast}
+                            easyUsability={settings.easyUsability}
+                        >
+                            {settings.highContrast ? "On" : "Off"}
+                        </Toggle>
+                    </Section>
+                    <Section>
+                        <Label>Scaling</Label>
+                        <Slider
+                            type="range"
+                            min="0.8"
+                            max="1.5"
+                            step="0.01"
+                            value={settings.scale}
+                            onChange={(e) => setScale(Number(e.target.value))}
+                            easyUsability={settings.easyUsability ? 1 : 0}
+                        />
+                        <div>{Math.round(settings.scale * 100)}%</div>
+                    </Section>
+                    <Section>
+                        <Label>Text Size</Label>
+                        <Button
+                            onClick={() => adjustFontSize(-5)}
+                            easyUsability={settings.easyUsability}
+                            aria-label="Decrease text size"
+                        >
+                            –
+                        </Button>
+                        <span style={{ margin: "0 12px" }}>{settings.fontSize}%</span>
+                        <Button
+                            onClick={() => adjustFontSize(5)}
+                            easyUsability={settings.easyUsability}
+                            aria-label="Increase text size"
+                        >
+                            +
+                        </Button>
+                    </Section>
+                    <Section>
+                        <Label>Text-to-Speech</Label>
+                        <div style={{ fontSize: "0.95em" }}>
+                            Hover over any text to read aloud.
+                        </div>
+                    </Section>
+                    <Section>
+                        <Label>Easy Usability</Label>
+                        <Toggle
+                            onClick={() => toggleSetting("easyUsability")}
+                            active={settings.easyUsability}
+                            easyUsability={settings.easyUsability}
+                        >
+                            {settings.easyUsability ? "On" : "Off"}
+                        </Toggle>
+                    </Section>
+                </Panel>
+            )}
+        </>
+    );
+}
+```
